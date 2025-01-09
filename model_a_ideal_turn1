@@ -1,0 +1,92 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <ctime>
+#include <string>
+#include <mutex>
+#include <memory>
+
+class Logger {
+public:
+    enum class Severity {
+        INFO,
+        WARNING,
+        ERROR,
+        DEBUG
+    };
+
+    Logger(const std::string& filename, Severity minSeverity = Severity::INFO)
+        : minSeverity(minSeverity), outputFile(filename, std::ios::app) {
+        if (!outputFile.is_open()) {
+            throw std::runtime_error("Failed to open log file");
+        }
+    }
+
+    ~Logger() {
+        if (outputFile.is_open()) {
+            outputFile.close();
+        }
+    }
+
+    // Variadic template method for logging
+    template<typename... Args>
+    void log(Severity severity, const Args&... args) {
+        if (severity < minSeverity) return;
+
+        std::ostringstream oss;
+        std::string severityStr = severityToString(severity);
+        oss << currentDateTime() << " [" << severityStr << "] ";
+        format(oss, args...);
+        std::lock_guard<std::mutex> lock(mtx);
+        std::cout << oss.str() << std::endl; // log to console
+        outputFile << oss.str() << std::endl; // log to file
+    }
+
+private:
+    Severity minSeverity;
+    std::ofstream outputFile;
+    std::mutex mtx;
+
+    std::string severityToString(Severity severity) {
+        switch (severity) {
+            case Severity::INFO: return "INFO";
+            case Severity::WARNING: return "WARNING";
+            case Severity::ERROR: return "ERROR";
+            case Severity::DEBUG: return "DEBUG";
+            default: return "UNKNOWN";
+        }
+    }
+
+    std::string currentDateTime() {
+        auto now = std::time(nullptr);
+        char buf[80];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+        return buf;
+    }
+
+    template<typename T>
+    void format(std::ostringstream& oss, const T& value) {
+        oss << value;
+    }
+    
+    template<typename T, typename... Args>
+    void format(std::ostringstream& oss, const T& value, const Args&... args) {
+        oss << value << " ";
+        format(oss, args...);
+    }
+};
+
+// Example Usage
+int main() {
+    try {
+        Logger logger("log.txt", Logger::Severity::WARNING);
+        logger.log(Logger::Severity::INFO, "This is an info message."); // Will not log
+        logger.log(Logger::Severity::WARNING, "Warning! Check this value:", 3.14);
+        logger.log(Logger::Severity::ERROR, "An error occurred with code:", 404);
+        logger.log(Logger::Severity::DEBUG, "Debugging details here."); // Will not log
+    } catch (const std::exception& e) {
+        std::cerr << "Logger encountered an error: " << e.what() << std::endl;
+    }
+    return 0;
+}
